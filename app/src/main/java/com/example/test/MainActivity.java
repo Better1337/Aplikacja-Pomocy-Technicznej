@@ -5,11 +5,16 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
-
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -24,15 +29,15 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_login);
 
-        // Zainicjuj FirebaseAuth
+        // Initialize FirebaseAuth
         mAuth = FirebaseAuth.getInstance();
 
-        // Zainicjuj referencje do widoków
+        // Initialize references to views
         emailEditText = findViewById(R.id.emailEditText);
         passwordEditText = findViewById(R.id.passwordEditText);
         loginButton = findViewById(R.id.loginButton);
 
-        // Dodaj słuchacza dla przycisku logowania
+        // Add click listener to login button
         loginButton.setOnClickListener(view -> {
             String email = emailEditText.getText().toString();
             String password = passwordEditText.getText().toString();
@@ -40,38 +45,56 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-        // Check if user is signed in (non-null) and update UI accordingly.
-        FirebaseUser currentUser = mAuth.getCurrentUser();
-        updateUI(currentUser);
-    }
-
-    public void signIn(String email, String password) {
+    private void signIn(String email, String password) {
         mAuth.signInWithEmailAndPassword(email, password)
                 .addOnCompleteListener(this, task -> {
                     if (task.isSuccessful()) {
                         // Sign in success, update UI with the signed-in user's information
                         FirebaseUser user = mAuth.getCurrentUser();
-                        Intent intent = new Intent(MainActivity.this, WelcomeActivity.class);
-                        intent.putExtra("email", user.getEmail());
-                        startActivity(intent);
-                        finish();  // Opcjonalnie: zakończ MainActivity, aby użytkownik nie mógł do niej wrócić, naciskając przycisk Wstecz
+                        if (user != null) {
+                            checkUserRole(user); // Pass the user to checkUserRole
+                        }
                     } else {
-                        Toast.makeText(MainActivity.this, "Logowanie nieudane", Toast.LENGTH_SHORT).show();
-                        updateUI(null);
+                        // If sign in fails, display a message to the user.
+                        Toast.makeText(MainActivity.this, "Authentication failed.",
+                                Toast.LENGTH_SHORT).show();
                     }
                 });
     }
 
-    private void updateUI(@Nullable FirebaseUser user) {
-        if (user != null) {
-            // User is signed in
-            // TODO: Update your UI with the user information
-        } else {
-            // User is signed out
-            // TODO: Update your UI to reflect the signed out state
-        }
+    private void checkUserRole(FirebaseUser firebaseUser) {
+        DatabaseReference usersRef = FirebaseDatabase.getInstance().getReference("users");
+        usersRef.child(firebaseUser.getUid()).addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                User user = dataSnapshot.getValue(User.class);
+                if (user != null) {
+                    Intent intent;
+                    if (user.isAdmin()) {
+                        intent = new Intent(MainActivity.this, AdminActivity.class);
+                    } else {
+                        intent = new Intent(MainActivity.this, UserActivity.class);
+                    }
+                    intent.putExtra("email", firebaseUser.getEmail()); // Pass email to the next activity
+                    startActivity(intent);
+                    finish(); // Finish MainActivity
+                } else {
+                    // If user is not found, show a message and sign out
+                    Toast.makeText(MainActivity.this, "User data not found.",
+                            Toast.LENGTH_SHORT).show();
+                    FirebaseAuth.getInstance().signOut();
+                    // Restart this activity or go back to login screen
+                    startActivity(new Intent(MainActivity.this, MainActivity.class));
+                    finish();
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError databaseError) {
+                // Getting user data failed, log a message
+                Toast.makeText(MainActivity.this, "Failed to read user data.",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 }
